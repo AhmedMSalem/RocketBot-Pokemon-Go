@@ -456,9 +456,10 @@ namespace RocketBot2.Forms
 
             //ProgressBar.Fill(90);
 
-            _session.Navigation.WalkStrategy.UpdatePositionEvent +=
-                (lat, lng) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng });
-            _session.Navigation.WalkStrategy.UpdatePositionEvent += SaveLocationToDisk;
+            _session.Navigation.WalkStrategy.UpdatePositionEvent += 
+                (session, lat, lng) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng });
+            _session.Navigation.WalkStrategy.UpdatePositionEvent += LoadSaveState.SaveLocationToDisk;
+
 
             Navigation.GetHumanizeRouteEvent +=
                 (route, destination, pokestops) => _session.EventDispatcher.Send(new GetHumanizeRouteEvent { Route = route, Destination = destination, pokeStops = pokestops });
@@ -600,7 +601,6 @@ namespace RocketBot2.Forms
             }, null);
 
             _currentLatLng = latlng;
-            SaveLocationToDisk(lat, lng);
             UpdateMap();
         }
 
@@ -983,7 +983,7 @@ namespace RocketBot2.Forms
             SetState(false);
             foreach (var pokemon in pokemons)
             {
-                await TransferSpecificPokemonTask.Execute(_session, pokemon.Id);
+                await TransferPokemonTask.Execute(_session,_session.CancellationTokenSource.Token, new List<ulong> { pokemon.Id } );
             }
             await ReloadPokemonList();
         }
@@ -1134,13 +1134,12 @@ namespace RocketBot2.Forms
                 PokemonObject.Initilize(itemTemplates);
 
                 var pokemons =
-                    inventory.InventoryDelta.InventoryItems.Select(i => i?.InventoryItemData?.PokemonData)
+                    inventory.Select(i => i?.InventoryItemData?.PokemonData)
                         .Where(p => p != null && p.PokemonId > 0)
                         .OrderByDescending(PokemonInfo.CalculatePokemonPerfection)
                         .ThenByDescending(key => key.Cp)
                         .OrderBy(key => key.PokemonId);
-                _families = inventory.InventoryDelta.InventoryItems
-                    .Select(i => i.InventoryItemData.Candy)
+                _families = inventory.Select(i => i.InventoryItemData.Candy)
                     .Where(p => p != null && p.FamilyId > 0)
                     .OrderByDescending(p => p.FamilyId);
 
@@ -1158,24 +1157,20 @@ namespace RocketBot2.Forms
                 olvPokemonList.TopItemIndex = prevTopItem;
 
                 var pokemoncount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.PokemonData)
+                    inventory.Select(i => i.InventoryItemData?.PokemonData)
                         .Count(p => p != null && p.PokemonId > 0);
                 var eggcount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.PokemonData)
+                    inventory.Select(i => i.InventoryItemData?.PokemonData)
                         .Count(p => p != null && p.IsEgg);
                 lblPokemonList.Text =
                     $"{pokemoncount + eggcount} / {profile.PlayerData.MaxPokemonStorage} ({pokemoncount} pokemon, {eggcount} eggs)";
 
                 var items =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.Item)
+                    inventory.Select(i => i.InventoryItemData?.Item)
                         .Where(i => i != null)
                         .OrderBy(i => i.ItemId);
                 var itemscount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.Item)
+                    inventory.Select(i => i.InventoryItemData?.Item)
                         .Where(i => i != null)
                         .Sum(i => i.Count) + 1;
 
@@ -1272,12 +1267,6 @@ namespace RocketBot2.Forms
         private static void EventDispatcher_EventReceived(IEvent evt)
         {
             throw new NotImplementedException();
-        }
-
-        private static void SaveLocationToDisk(double lat, double lng)
-        {
-            var coordsPath = Path.Combine(_session.LogicSettings.ProfileConfigPath, "LastPos.ini");
-            File.WriteAllText(coordsPath, $"{lat}:{lng}");
         }
 
         private static bool CheckMKillSwitch()

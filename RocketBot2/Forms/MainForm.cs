@@ -89,7 +89,7 @@ namespace RocketBot2.Forms
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            Text = Application.ProductName + " " + Application.ProductVersion;
+            SetStatusText(Application.ProductName + " " + Application.ProductVersion);
             speedLable.Parent = gMapControl1;
             showMoreCheckBox.Parent = gMapControl1;
             followTrainerCheckBox.Parent = gMapControl1;
@@ -266,16 +266,15 @@ namespace RocketBot2.Forms
                 }
             }
 
-            /*if (!_ignoreKillSwitch)
+            if (!_ignoreKillSwitch)
             {
-                if (CheckKillSwitch() || CheckMKillSwitch())
+                /*if (CheckKillSwitch() || CheckMKillSwitch())
                 {
                     return;
-                }
-            }*/
-
-            CheckKillSwitch();
-            CheckMKillSwitch();
+                }*/
+                CheckKillSwitch();
+                CheckMKillSwitch();
+            }
 
             var logicSettings = new LogicSettings(settings);
             var translation = Translation.Load(logicSettings);
@@ -516,8 +515,11 @@ namespace RocketBot2.Forms
             if (_session.LogicSettings.EnableHumanWalkingSnipe &&
                 _session.LogicSettings.HumanWalkingSnipeUseFastPokemap)
             {
+                // jjskuld - Ignore CS4014 warning for now.
+                #pragma warning disable 4014
                 await HumanWalkSnipeTask.StartFastPokemapAsync(_session,
                     _session.CancellationTokenSource.Token); // that need to keep data live
+                #pragma warning restore 4014
             }
 
             if (_session.LogicSettings.DataSharingEnable)
@@ -531,8 +533,9 @@ namespace RocketBot2.Forms
             {
                 ServicePointManager.ServerCertificateValidationCallback +=
                     (sender, certificate, chain, sslPolicyErrors) => true;
-                MSniperServiceTask.ConnectToService();
-                _session.EventDispatcher.EventReceived += evt => MSniperServiceTask.AddToList(evt);
+                //temporary disable MSniper connection because site under attacking.
+                //MSniperServiceTask.ConnectToService();
+                //_session.EventDispatcher.EventReceived += evt => MSniperServiceTask.AddToList(evt);
             }
             var trackFile = Path.GetTempPath() + "\\rocketbot2.io";
 
@@ -840,7 +843,6 @@ namespace RocketBot2.Forms
         #endregion EVENTS
        
         #region POKEMON LIST
-        private IEnumerable<Candy> _families;
 
         private void InitializePokemonForm()
         {
@@ -1139,16 +1141,13 @@ namespace RocketBot2.Forms
                         .OrderByDescending(PokemonInfo.CalculatePokemonPerfection)
                         .ThenByDescending(key => key.Cp)
                         .OrderBy(key => key.PokemonId);
-                _families = inventory.Select(i => i.InventoryItemData.Candy)
-                    .Where(p => p != null && p.FamilyId > 0)
-                    .OrderByDescending(p => p.FamilyId);
-
+                                                   
                 var pokemonObjects = new List<PokemonObject>();
                 foreach (var pokemon in pokemons)
                 {
                     var pokemonObject = new PokemonObject(pokemon);
-                    var family = _families.First(i => (int)i.FamilyId <= (int)pokemon.PokemonId);
-                    pokemonObject.Candy = family.Candy_;
+                    var Candy_ = _session.Inventory.GetCandyCount(pokemon.PokemonId);
+                    pokemonObject.Candy = Candy_;
                     pokemonObjects.Add(pokemonObject);
                 }
 

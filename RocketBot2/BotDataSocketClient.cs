@@ -16,6 +16,7 @@ using PoGo.NecroBot.Logic.Tasks;
 using POGOProtos.Enums;
 using WebSocketSharp;
 using Logger = PoGo.NecroBot.Logic.Logging.Logger;
+using System.Runtime.Caching;
 
 namespace RocketBot2
 {
@@ -25,11 +26,15 @@ namespace RocketBot2
         {
             public string Header { get; set; }
             public string Body { get; set; }
-            public long TimeTimestamp { get;  set; }
+            public long TimeTimestamp { get; set; }
             public string Hash { get; set; }
         }
         private static List<EncounteredEvent> events = new List<EncounteredEvent>();
         private const int POLLING_INTERVAL = 5000;
+
+        public static void HandleEvent(IEvent evt, ISession session)
+        {
+        }
 
         public static void Listen(IEvent evt, ISession session)
         {
@@ -48,14 +53,21 @@ namespace RocketBot2
         {
             lock (events)
             {
-                if (eve.IsRecievedFromSocket) return;
+                if (eve.IsRecievedFromSocket && cache.Get(eve.EncounterId) != null) return;
                 events.Add(eve);
             }
         }
-
+        private static SnipePokemonUpdateEvent lastEncouteredEvent;
+        private static void HandleEvent(SnipePokemonUpdateEvent eve, ISession session)
+        {
+            lock (lastEncouteredEvent)
+            {
+                lastEncouteredEvent = eve;
+            }
+        }
         private static string Serialize(dynamic evt)
         {
-            var jsonSerializerSettings = new JsonSerializerSettings {TypeNameHandling = TypeNameHandling.All};
+            var jsonSerializerSettings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
 
             // Add custom seriaizer to convert uong to string (ulong shoud not appear to json according to json specs)
             jsonSerializerSettings.Converters.Add(new IdToStringConverter());
@@ -70,7 +82,6 @@ namespace RocketBot2
             return json;
         }
 
-        private static int retries = 0;
         static List<EncounteredEvent> processing = new List<EncounteredEvent>();
 
         public static String SHA256Hash(String value)
@@ -90,17 +101,33 @@ namespace RocketBot2
 
         public static async Task Start(Session session, CancellationToken cancellationToken)
         {
+            
             await Task.Delay(30000, cancellationToken); //delay running 30s
 
             ServicePointManager.Expect100Continue = false;
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var socketURL = session.LogicSettings.DataSharingDataUrl;
+            while(true)
+            {
+                var socketURL = servers.Dequeue();
+                Logger.Write($"Connecting to {socketURL}....");
+                await ConnectToServer(session, socketURL);
+                servers.Enqueue(socketURL);
+            }
+            
+        }
+        public static async Task ConnectToServer(ISession session, string socketURL)
+        {
+            if (!string.IsNullOrEmpty(session.LogicSettings.DataSharingConfig.SnipeDataAccessKey))
+            {
+                socketURL += "&access_key=" + session.LogicSettings.DataSharingConfig.SnipeDataAccessKey;
+            }
 
+            int retries = 0;
             using (var ws = new WebSocket(socketURL))
             {
-                ws.Log.Level = LogLevel.Fatal;
+                ws.Log.Level = LogLevel.Fatal; ;
                 ws.Log.Output = (logData, message) =>
                 {
                     //silenly, no log exception message to screen that scare people :)
@@ -111,21 +138,24 @@ namespace RocketBot2
                 ws.Connect();
                 while (true)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        if (retries == 5)
+                        if (retries == 3)
                         {
                             //failed to make connection to server  times contiuing, temporary stop for 10 mins.
                             session.EventDispatcher.Send(new WarnEvent()
                             {
-                                Message = "Couldn't establish the connection to necro socket server, Bot will re-connect after 10 mins"
+                                Message = $"Couldn't establish the connection to necro socket server : {socketURL}"
                             });
-                            await Task.Delay(1 * 60 * 1000, cancellationToken);
+                            if(session.LogicSettings.DataSharingConfig.EnableFailoverDataServers && servers.Count > 1)
+                            {
+                                break;
+                            }
+                            await Task.Delay(1 * 60 * 1000);
                             retries = 0;
                         }
 
-                        if (events.Count > 0 && ws.ReadyState != WebSocketState.Open)
+                        if (ws.ReadyState != WebSocketState.Open)
                         {
                             retries++;
                             ws.Connect();
@@ -143,6 +173,19 @@ namespace RocketBot2
                                 events.Clear();
                             }
 
+                            if (lastEncouteredEvent != null && ws.IsAlive)
+                            {
+                                lock (lastEncouteredEvent)
+                                {
+                                    var data = Serialize(lastEncouteredEvent);
+                                    lastEncouteredEvent = null;
+                                    var message = Encrypt(data);
+                                    var actualMessage = JsonConvert.SerializeObject(message);
+                                    ws.Send($"42[\"pokemons-update\",{actualMessage}]");
+                                }
+                                await Task.Delay(POLLING_INTERVAL);
+                            }
+
                             if (processing.Count > 0 && ws.IsAlive)
                             {
                                 var data = Serialize(processing);
@@ -150,8 +193,8 @@ namespace RocketBot2
                                 var actualMessage = JsonConvert.SerializeObject(message);
                                 ws.Send($"42[\"pokemons-secure\",{actualMessage}]");
                             }
-                           
-                            await Task.Delay(POLLING_INTERVAL, cancellationToken);
+
+                            await Task.Delay(POLLING_INTERVAL);
                             ws.Ping();
                         }
                     }
@@ -168,8 +211,7 @@ namespace RocketBot2
                     finally
                     {
                         //everytime disconnected with server bot wil reconnect after 15 sec
-                        await Task.Delay(POLLING_INTERVAL, cancellationToken);
-
+                        await Task.Delay(POLLING_INTERVAL);
                     }
                 }
             }
@@ -179,21 +221,22 @@ namespace RocketBot2
         {
             try
             {
+                OnPokemonUpdateData(session, e.Data);
                 OnPokemonData(session, e.Data);
                 OnSnipePokemon(session, e.Data);
                 OnServerMessage(session, e.Data);
                 //ONFPMBridgeData(session, e.Data); //Nolonger use
             }
 
-            #pragma warning disable 0168 // Comment Suppress compiler warning - ex is used in DEBUG section
+#pragma warning disable 0168 // Comment Suppress compiler warning - ex is used in DEBUG section
             catch (Exception ex)
-            #pragma warning restore 0168
+#pragma warning restore 0168
             {
                 // Comment Suppress compiler warning - ex is used in DEBUG section
-                #if DEBUG
+#if DEBUG
                 Logger.Write("ERROR TO ADD SNIPE< DEBUG ONLY " + ex.Message + "\r\n " + ex.StackTrace,
                     PoGo.NecroBot.Logic.Logging.LogLevel.Info, ConsoleColor.Yellow);
-                #endif
+#endif
             }
         }
 
@@ -204,7 +247,7 @@ namespace RocketBot2
             {
                 session.EventDispatcher.Send(new NoticeEvent()
                 {
-                    Message ="(SERVER) " + match.Groups[1].Value
+                    Message = "(SERVER) " + match.Groups[1].Value
                 });
             }
         }
@@ -215,7 +258,11 @@ namespace RocketBot2
             if (match != null && !string.IsNullOrEmpty(match.Groups[1].Value))
             {
                 //var data = JsonConvert.DeserializeObject<List<Logic.Tasks.HumanWalkSnipeTask.FastPokemapItem>>(match.Groups[1].Value);
+
+                // jjskuld - Ignore CS4014 warning for now.
+                #pragma warning disable 4014
                 HumanWalkSnipeTask.AddFastPokemapItem(match.Groups[1].Value);
+                #pragma warning restore 4014
             }
         }
 
@@ -229,40 +276,59 @@ namespace RocketBot2
 
             return false;
         }
+        private static void OnPokemonUpdateData(ISession session, string message)
+        {
+            var match = Regex.Match(message, "42\\[\"pokemon-update\",(.*)]");
+            if (match != null && !string.IsNullOrEmpty(match.Groups[1].Value))
+            {
+                var data = JsonConvert.DeserializeObject<EncounteredEvent>(match.Groups[1].Value);
+                MSniperServiceTask.RemoveExpiredSnipeData(session, data.EncounterId);
+                 
+            }
+        }
+
+        private static MemoryCache cache = new MemoryCache("dump");
 
         private static void OnPokemonData(ISession session, string message)
         {
+            
             var match = Regex.Match(message, "42\\[\"pokemon\",(.*)]");
             if (match != null && !string.IsNullOrEmpty(match.Groups[1].Value))
             {
                 var data = JsonConvert.DeserializeObject<EncounteredEvent>(match.Groups[1].Value);
                 data.IsRecievedFromSocket = true;
+                ulong encounterid = 0;
+                ulong.TryParse(data.EncounterId, out encounterid);
+                if(encounterid>0 && cache.Get(encounterid.ToString()) == null)
+                {
+                    cache.Add(encounterid.ToString(), DateTime.Now, DateTime.Now.AddMinutes(15));
+                }
+
                 session.EventDispatcher.Send(data);
-                if (session.LogicSettings.AllowAutoSnipe)
+                if (session.LogicSettings.DataSharingConfig.AutoSnipe)
                 {
                     var move1 = PokemonMove.MoveUnset;
                     var move2 = PokemonMove.MoveUnset;
                     Enum.TryParse<PokemonMove>(data.Move1, true, out move1);
                     Enum.TryParse<PokemonMove>(data.Move2, true, out move2);
-                    ulong encounterid = 0;
-                    ulong.TryParse(data.EncounterId, out encounterid);
+                   
                     bool caught = CheckIfPokemonBeenCaught(data.Latitude, data.Longitude,
                         data.PokemonId, encounterid, session);
                     if (!caught)
                     {
                         var added = MSniperServiceTask.AddSnipeItem(session, new MSniperServiceTask.MSniperInfo2()
-                            {
-                                UniqueIdentifier = data.EncounterId,
-                                Latitude = data.Latitude,
-                                Longitude = data.Longitude,
-                                EncounterId = encounterid,
-                                SpawnPointId = data.SpawnPointId,
-                                PokemonId = (short) data.PokemonId,
-                                Iv = data.IV,
-                                Move1 = move1,
-                                Move2 = move2,
-                                ExpiredTime = data.ExpireTimestamp
-                            });
+                        {
+                            UniqueIdentifier = data.EncounterId,
+                            Latitude = data.Latitude,
+                            Longitude = data.Longitude,
+                            EncounterId = encounterid,
+                            SpawnPointId = data.SpawnPointId,
+                            PokemonId = (short)data.PokemonId,
+                            Iv = data.IV,
+                            Move1 = move1,
+                            Move2 = move2,
+                            ExpiredTime = data.ExpireTimestamp
+                        });
                         if (added)
                         {
                             session.EventDispatcher.Send(new AutoSnipePokemonAddedEvent(data));
@@ -280,9 +346,9 @@ namespace RocketBot2
                 var data = JsonConvert.DeserializeObject<EncounteredEvent>(match.Groups[1].Value);
 
                 //not your snipe item, return need more encrypt here and configuration to allow catch others item
-                if (string.IsNullOrEmpty(session.LogicSettings.DataSharingIdentifiation) ||
+                if (string.IsNullOrEmpty(session.LogicSettings.DataSharingConfig.DataServiceIdentification) ||
                     string.IsNullOrEmpty(data.RecieverId) ||
-                    data.RecieverId.ToLower() != session.LogicSettings.DataSharingIdentifiation.ToLower()) return;
+                    data.RecieverId.ToLower() != session.LogicSettings.DataSharingConfig.DataServiceIdentification.ToLower()) return;
 
                 var move1 = PokemonMove.Absorb;
                 var move2 = PokemonMove.Absorb;
@@ -301,24 +367,39 @@ namespace RocketBot2
                 }
 
                 MSniperServiceTask.AddSnipeItem(session, new MSniperServiceTask.MSniperInfo2()
-                    {
-                        UniqueIdentifier = data.EncounterId,
-                        Latitude = data.Latitude,
-                        Longitude = data.Longitude,
-                        EncounterId = encounterid,
-                        SpawnPointId = data.SpawnPointId,
-                        PokemonId = (short) data.PokemonId,
-                        Iv = data.IV,
-                        Move1 = move1,
-                        ExpiredTime = data.ExpireTimestamp,
-                        Move2 = move2
-                    }, true);
+                {
+                    UniqueIdentifier = data.EncounterId,
+                    Latitude = data.Latitude,
+                    Longitude = data.Longitude,
+                    EncounterId = encounterid,
+                    SpawnPointId = data.SpawnPointId,
+                    PokemonId = (short)data.PokemonId,
+                    Iv = data.IV,
+                    Move1 = move1,
+                    ExpiredTime = data.ExpireTimestamp,
+                    Move2 = move2
+                }, true);
             }
         }
-
+        private static Queue<string> servers = new Queue<string>();
         internal static Task StartAsync(Session session,
             CancellationToken cancellationToken = default(CancellationToken))
         {
+            var config = session.LogicSettings.DataSharingConfig;
+
+            if (config.EnableSyncData)
+            {
+                servers.Enqueue(config.DataRecieverURL);
+
+                if(config.EnableFailoverDataServers)
+                {
+                    foreach (var item in config.FailoverDataServers.Split(";".ToCharArray(), StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        servers.Enqueue(item);
+                    }
+                }
+            }
+
             return Task.Run(() => Start(session, cancellationToken), cancellationToken);
         }
 

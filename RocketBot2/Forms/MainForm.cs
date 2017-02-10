@@ -1,4 +1,6 @@
-﻿using System;
+﻿#region using directives
+
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -40,6 +42,10 @@ using PoGo.NecroBot.Logic.Tasks;
 using System.Net;
 using RocketBot2.CommandLineUtility;
 using System.Diagnostics;
+using RocketBot2.Logic.Utils;
+
+#endregion
+
 
 namespace RocketBot2.Forms
 {
@@ -58,7 +64,6 @@ namespace RocketBot2.Forms
         private static readonly Uri StrMasterKillSwitchUri =
             new Uri("https://raw.githubusercontent.com/TheUnnamedOrganisation/PoGo.NecroBot.Logic/master/MKS.txt");
 
-        private static Session _session;
         private GlobalSettings _settings;
         private StateMachine _machine;
         private PointLatLng _currentLatLng;
@@ -73,6 +78,8 @@ namespace RocketBot2.Forms
         private readonly GMapOverlay _pokestopsOverlay = new GMapOverlay("pokestops");
         private readonly GMapOverlay _searchAreaOverlay = new GMapOverlay("areas");
 
+        public static Session _session;
+
         public MainForm(string[] _args)
         {
             InitializeComponent();
@@ -83,7 +90,7 @@ namespace RocketBot2.Forms
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            Text = Application.ProductName + " " + Application.ProductVersion;
+            SetStatusText(Application.ProductName + " " + Application.ProductVersion);
             speedLable.Parent = gMapControl1;
             showMoreCheckBox.Parent = gMapControl1;
             followTrainerCheckBox.Parent = gMapControl1;
@@ -107,7 +114,7 @@ namespace RocketBot2.Forms
 
             gMapControl1.MinZoom = 1;
             gMapControl1.MaxZoom = 20;
-            gMapControl1.Zoom = 15;
+            gMapControl1.Zoom = 16;
 
             gMapControl1.Overlays.Add(_searchAreaOverlay);
             gMapControl1.Overlays.Add(_pokestopsOverlay);
@@ -141,7 +148,7 @@ namespace RocketBot2.Forms
                 QuitEvent.Set();
                 eArgs.Cancel = true;
             };
-            */
+             */
             // Command line parsing
             var commandLine = new Arguments(args);
             // Look for specific arguments values
@@ -156,6 +163,7 @@ namespace RocketBot2.Forms
                     case "true":
                         _enableJsonValidation = true;
                         break;
+
                     case "false":
                         _enableJsonValidation = false;
                         break;
@@ -168,6 +176,7 @@ namespace RocketBot2.Forms
                     case "true":
                         _ignoreKillSwitch = false;
                         break;
+
                     case "false":
                         _ignoreKillSwitch = true;
                         break;
@@ -258,13 +267,15 @@ namespace RocketBot2.Forms
                 }
             }
 
-            /*if (!_ignoreKillSwitch)
+            if (!_ignoreKillSwitch)
             {
-                if (CheckKillSwitch() || CheckMKillSwitch())
+                /*if (CheckKillSwitch() || CheckMKillSwitch())
                 {
                     return;
-                }
-            }*/
+                }*/
+                CheckKillSwitch();
+                CheckMKillSwitch();
+            }
 
             var logicSettings = new LogicSettings(settings);
             var translation = Translation.Load(logicSettings);
@@ -445,9 +456,10 @@ namespace RocketBot2.Forms
 
             //ProgressBar.Fill(90);
 
-            _session.Navigation.WalkStrategy.UpdatePositionEvent +=
-                (lat, lng) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng });
-            _session.Navigation.WalkStrategy.UpdatePositionEvent += SaveLocationToDisk;
+            _session.Navigation.WalkStrategy.UpdatePositionEvent += 
+                (session, lat, lng) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng });
+            _session.Navigation.WalkStrategy.UpdatePositionEvent += LoadSaveState.SaveLocationToDisk;
+
 
             Navigation.GetHumanizeRouteEvent +=
                 (route, destination, pokestops) => _session.EventDispatcher.Send(new GetHumanizeRouteEvent { Route = route, Destination = destination, pokeStops = pokestops });
@@ -466,7 +478,6 @@ namespace RocketBot2.Forms
             CatchIncensePokemonsTask.PokemonEncounterEvent += UpdateMap;
 
             //ProgressBar.Fill(100);
-
 
             var accountManager = new MultiAccountManager(logicSettings.Bots);
 
@@ -505,11 +516,14 @@ namespace RocketBot2.Forms
             if (_session.LogicSettings.EnableHumanWalkingSnipe &&
                 _session.LogicSettings.HumanWalkingSnipeUseFastPokemap)
             {
+                // jjskuld - Ignore CS4014 warning for now.
+                #pragma warning disable 4014
                 await HumanWalkSnipeTask.StartFastPokemapAsync(_session,
                     _session.CancellationTokenSource.Token); // that need to keep data live
+                #pragma warning restore 4014
             }
 
-            if (_session.LogicSettings.DataSharingEnable)
+            if (_session.LogicSettings.DataSharingConfig.EnableSyncData)
             {
                 await BotDataSocketClient.StartAsync(_session);
                 _session.EventDispatcher.EventReceived += evt => BotDataSocketClient.Listen(evt, _session);
@@ -518,8 +532,11 @@ namespace RocketBot2.Forms
 
             if (_session.LogicSettings.ActivateMSniper)
             {
-                MSniperServiceTask.ConnectToService();
-                _session.EventDispatcher.EventReceived += evt => MSniperServiceTask.AddToList(evt);
+                ServicePointManager.ServerCertificateValidationCallback +=
+                    (sender, certificate, chain, sslPolicyErrors) => true;
+                //temporary disable MSniper connection because site under attacking.
+                //MSniperServiceTask.ConnectToService();
+                //_session.EventDispatcher.EventReceived += evt => MSniperServiceTask.AddToList(evt);
             }
             var trackFile = Path.GetTempPath() + "\\rocketbot2.io";
 
@@ -537,179 +554,13 @@ namespace RocketBot2.Forms
                 mThread.Start();
             }
 
-
             QuitEvent.WaitOne();
-
-        }
-
-
-        private static void EventDispatcher_EventReceived(IEvent evt)
-        {
-            throw new NotImplementedException();
-        }
-
-        private static void SaveLocationToDisk(double lat, double lng)
-        {
-            var coordsPath = Path.Combine(_session.LogicSettings.ProfileConfigPath, "LastPos.ini");
-            File.WriteAllText(coordsPath, $"{lat}:{lng}");
-        }
-
-        private static bool CheckMKillSwitch()
-        {
-            using (var wC = new WebClient())
-            {
-                try
-                {
-                    var strResponse1 = WebClientExtensions.DownloadString(wC, StrMasterKillSwitchUri);
-
-                    if (strResponse1 == null)
-                        return true;
-
-                    var strSplit1 = strResponse1.Split(';');
-
-                    if (strSplit1.Length > 1)
-                    {
-                        var strStatus1 = strSplit1[0];
-                        var strReason1 = strSplit1[1];
-                        var strExitMsg = strSplit1[2];
-
-
-                        if (strStatus1.ToLower().Contains("disable"))
-                        {
-                            Logger.Write(strReason1 + $"\n", LogLevel.Warning);
-                            /*
-                            Logger.Write(strExitMsg + $"\n" + "Please press enter to continue", LogLevel.Error);
-                            Console.ReadLine();*/
-                            return true;
-                        }
-                        else
-                            return false;
-                    }
-                    else
-                        return false;
-                }
-                catch (WebException)
-                {
-                    // ignored
-                }
-            }
-
-            return false;
-        }
-
-        private static bool CheckKillSwitch()
-        {
-            using (var wC = new WebClient())
-            {
-                try
-                {
-                    var strResponse = WebClientExtensions.DownloadString(wC, StrKillSwitchUri);
-
-                    if (strResponse == null)
-                        return false;
-
-                    var strSplit = strResponse.Split(';');
-
-                    if (strSplit.Length > 1)
-                    {
-                        var strStatus = strSplit[0];
-                        var strReason = strSplit[1];
-
-                        if (strStatus.ToLower().Contains("disable"))
-                        {
-                            //Logger.Write(strReason + $"\n", LogLevel.Warning);
-                            Logger.Write(strReason, LogLevel.Warning);
-
-                            if (PromptForKillSwitchOverride())
-                            {
-                                // Override
-                                /*
-                                Logger.Write("Overriding killswitch... you have been warned!", LogLevel.Warning);
-                                return false;
-                            }
-
-                            Logger.Write("The bot will now close, please press enter to continue", LogLevel.Error);
-                            //Console.ReadLine();
-                            return true;
-                            */
-                                DialogResult result = MessageBox.Show(strReason, Application.ProductName + " - Use Old API detected", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                                switch (result)
-                                {
-                                    case DialogResult.Yes:
-                                        {
-                                            DialogResult result1 = MessageBox.Show("!!! You risk permanent BAN !!!\n\n " + Application.ProductName + " is not responsible for any banned account.\n\n Are you sure you want to continue?", Application.ProductName + " -Are you sure??", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                                            switch (result1)
-                                            {
-                                                case DialogResult.No: { Application.Exit(); break; }
-                                            }
-                                            break;
-                                        }
-                                    case DialogResult.No: { Application.Exit(); break; }
-                                }
-                                Logger.Write(strReason, LogLevel.Warning);
-                                Logger.Write("The robot should be closed.", LogLevel.Warning);
-                            }
-                        }
-                        else
-                            return false;
-                    }
-                }
-                catch (WebException)
-                {
-                    // ignored
-                }
-            }
-
-            return false;
-        }
-
-
-        private static void UnhandledExceptionEventHandler(object obj, UnhandledExceptionEventArgs args)
-        {
-            Logger.Write("Exception caught, writing LogBuffer.", force: true);
-            //throw new Exception();
-        }
-
-        public static bool PromptForKillSwitchOverride()
-        {
-            Logger.Write("Do you want to override killswitch to bot at your own risk? Y/N", LogLevel.Warning);
-
-            /*
-            while (true)
-            {
-                var strInput = Console.ReadLine().ToLower();
-
-                switch (strInput)
-                {
-                    case "y":
-                        // Override killswitch
-                        return true;
-                    case "n":
-                        return false;
-                    default:
-                        Logger.Write("Enter y or n", LogLevel.Error);
-                        continue;
-                }
-            }
-            */
-            DialogResult result = MessageBox.Show("Do you want to override killswitch to bot at your own risk? Y/N", Application.ProductName + " - Use Old API detected", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-            switch (result)
-            {
-                case DialogResult.Yes: return true;
-                case DialogResult.No: return false;
-            }
-            return false;
         }
 
         private void InitializePokestopsAndRoute(List<FortData> pokeStops)
         {
             SynchronizationContext.Post(o =>
             {
-                _pokestopsOverlay.Markers.Clear();
-                _pokestopsOverlay.Routes.Clear();
-                _playerOverlay.Markers.Clear();
-                _playerOverlay.Routes.Clear();
-                _playerLocations.Clear();
                 var routePoint =
                     (from pokeStop in pokeStops
                      where pokeStop != null
@@ -739,7 +590,6 @@ namespace RocketBot2.Forms
         private void Navigation_UpdatePositionEvent(double lat, double lng)
         {
             var latlng = new PointLatLng(lat, lng);
-
             _playerLocations.Add(latlng);
             var currentlatlng = _currentLatLng;
             SynchronizationContext.Post(o =>
@@ -756,7 +606,6 @@ namespace RocketBot2.Forms
 
             _currentLatLng = latlng;
             UpdateMap();
-            SaveLocationToDisk(lat, lng);
         }
 
         private void showMoreCheckBox_CheckedChanged(object sender, EventArgs e)
@@ -829,8 +678,18 @@ namespace RocketBot2.Forms
             {
                 Stroke = new Pen(Color.FromArgb(128, 0, 179, 253), 4) { DashStyle = DashStyle.Dash }
             };
+            _pokestopsOverlay.Markers.Clear();
+            _pokestopsOverlay.Routes.Clear();
+            _playerRouteOverlay.Routes.Clear();
+            _playerOverlay.Markers.Clear();
+            _playerOverlay.Routes.Clear();
+            _pokemonsOverlay.Markers.Clear();
+            _playerLocations.Clear();
+            //get optimized route
+            var _pokeStops = RouteOptimizeUtil.Optimize(pokeStops.ToArray(), _session.Client.CurrentLatitude,
+                _session.Client.CurrentLongitude);
             _playerRouteOverlay.Routes.Add(routes);
-            InitializePokestopsAndRoute(pokeStops);
+            InitializePokestopsAndRoute(_pokeStops);
             /* Logger.Write("new call");
              List<PointLatLng> routePointLatLngs = new List<PointLatLng>();
              Logger.Write("new route size: " +route.Count);
@@ -895,8 +754,6 @@ namespace RocketBot2.Forms
         {
             SynchronizationContext.Post(o =>
             {
-                _pokemonsOverlay.Markers.Clear();
-
                 foreach (var pokemon in encounterPokemons)
                 {
                     var pkmImage = ResourceHelper.GetImage("Pokemon_" + pokemon.PokemonId.GetHashCode(), 50, 50);
@@ -987,7 +844,6 @@ namespace RocketBot2.Forms
         #endregion EVENTS
        
         #region POKEMON LIST
-        private IEnumerable<Candy> _families;
 
         private void InitializePokemonForm()
         {
@@ -996,7 +852,6 @@ namespace RocketBot2.Forms
             pkmnName.ImageGetter = delegate (object rowObject)
             {
                 var pokemon = rowObject as PokemonObject;
-
                 // ReSharper disable once PossibleNullReferenceException
                 var key = pokemon.PokemonId.ToString();
                 if (!olvPokemonList.SmallImageList.Images.ContainsKey(key))
@@ -1017,6 +872,8 @@ namespace RocketBot2.Forms
                     .Count(p => p == pok.PokemonId) > 1)
                     e.Item.BackColor = Color.LightGreen;
 
+                    e.Item.Text = _session.Translation.GetPokemonTranslation(pok.PokemonId);
+                                   
                 foreach (OLVListSubItem sub in e.Item.SubItems)
                 {
                     // ReSharper disable once PossibleNullReferenceException
@@ -1128,10 +985,12 @@ namespace RocketBot2.Forms
         private async void TransferPokemon(IEnumerable<PokemonData> pokemons)
         {
             SetState(false);
+            var _pokemons = new List<ulong>();
             foreach (var pokemon in pokemons)
             {
-                await TransferSpecificPokemonTask.Execute(_session, pokemon.Id);
+                _pokemons.Add(pokemon.Id);
             }
+            await TransferPokemonTask.Execute(_session, _session.CancellationTokenSource.Token, _pokemons);
             await ReloadPokemonList();
         }
 
@@ -1258,7 +1117,7 @@ namespace RocketBot2.Forms
                     }
                     continue;
                 }
-                await RenameSpecificPokemonTask.Execute(_session, pokemon, nickname);
+                await RenameSinglePokemonTask.Execute(_session, pokemon.Id, nickname,_session.CancellationTokenSource.Token);
             }
             await ReloadPokemonList();
         }
@@ -1268,36 +1127,32 @@ namespace RocketBot2.Forms
             SetState(false);
             try
             {
-                _session.Inventory.GetCachedInventory();
                 var itemTemplates = await _session.Client.Download.GetItemTemplates();
                 var inventory =  _session.Inventory.GetCachedInventory();
                 var profile = await _session.Client.Player.GetPlayer();
                 var inventoryAppliedItems =  _session.Inventory.GetAppliedItems();
 
-                var appliedItems =
-                    inventoryAppliedItems.Where(aItems => aItems?.Item != null)
-                        .SelectMany(aItems => aItems.Item)
-                        .ToDictionary(item => item.ItemId, item => TimeHelper.FromUnixTimeUtc(item.ExpireMs));
+                var appliedItems = 
+                    inventoryAppliedItems
+                    .Where(aItems => aItems?.Item != null)
+                    .SelectMany(aItems => aItems.Item)
+                    .ToDictionary(item => item.ItemId, item => TimeHelper.FromUnixTimeUtc(item.ExpireMs));
 
                 PokemonObject.Initilize(itemTemplates);
 
-                var pokemons =
-                    inventory.InventoryDelta.InventoryItems.Select(i => i?.InventoryItemData?.PokemonData)
-                        .Where(p => p != null && p.PokemonId > 0)
-                        .OrderByDescending(PokemonInfo.CalculatePokemonPerfection)
-                        .ThenByDescending(key => key.Cp)
-                        .OrderBy(key => key.PokemonId);
-                _families = inventory.InventoryDelta.InventoryItems
-                    .Select(i => i.InventoryItemData.Candy)
-                    .Where(p => p != null && p.FamilyId > 0)
-                    .OrderByDescending(p => p.FamilyId);
-
+                var pokemons = 
+                    _session.Inventory.GetPokemons()
+                    .Where(p => p != null && p.PokemonId > 0)
+                    .OrderByDescending(PokemonInfo.CalculatePokemonPerfection)
+                    .ThenByDescending(key => key.Cp)
+                    .OrderBy(key => key.PokemonId);
+                                                   
                 var pokemonObjects = new List<PokemonObject>();
+
                 foreach (var pokemon in pokemons)
                 {
                     var pokemonObject = new PokemonObject(pokemon);
-                    var family = _families.First(i => (int)i.FamilyId <= (int)pokemon.PokemonId);
-                    pokemonObject.Candy = family.Candy_;
+                    pokemonObject.Candy = PokemonInfo.GetCandy(_session, pokemon);
                     pokemonObjects.Add(pokemonObject);
                 }
 
@@ -1305,28 +1160,20 @@ namespace RocketBot2.Forms
                 olvPokemonList.SetObjects(pokemonObjects);
                 olvPokemonList.TopItemIndex = prevTopItem;
 
-                var pokemoncount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.PokemonData)
-                        .Count(p => p != null && p.PokemonId > 0);
-                var eggcount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.PokemonData)
-                        .Count(p => p != null && p.IsEgg);
+                var pokemoncount = pokemons.Count();
+
+                var eggcount = _session.Inventory.GetEggs().Count();
+
                 lblPokemonList.Text =
                     $"{pokemoncount + eggcount} / {profile.PlayerData.MaxPokemonStorage} ({pokemoncount} pokemon, {eggcount} eggs)";
 
-                var items =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.Item)
-                        .Where(i => i != null)
-                        .OrderBy(i => i.ItemId);
-                var itemscount =
-                    inventory.InventoryDelta.InventoryItems
-                        .Select(i => i.InventoryItemData?.Item)
-                        .Where(i => i != null)
-                        .Sum(i => i.Count) + 1;
+                var items = 
+                    _session.Inventory.GetItems()
+                    .Where(i => i != null)
+                    .OrderBy(i => i.ItemId);
 
+                var itemscount = items.Count() +1;
+                   
                     flpItems.Controls.Clear();
                     foreach (var item in items)
                     {
@@ -1414,6 +1261,139 @@ namespace RocketBot2.Forms
             });
             mThread.SetApartmentState(ApartmentState.STA);
              mThread.Start();
+        }
+
+        //**** Program functions
+        private static void EventDispatcher_EventReceived(IEvent evt)
+        {
+            throw new NotImplementedException();
+        }
+
+        private static bool CheckMKillSwitch()
+        {
+            using (var wC = new WebClient())
+            {
+                try
+                {
+                    var strResponse1 = WebClientExtensions.DownloadString(wC, StrMasterKillSwitchUri);
+
+                    if (strResponse1 == null)
+                        return true;
+
+                    var strSplit1 = strResponse1.Split(';');
+
+                    if (strSplit1.Length > 1)
+                    {
+                        var strStatus1 = strSplit1[0];
+                        var strReason1 = strSplit1[1];
+                        var strExitMsg = strSplit1[2];
+
+
+                        if (strStatus1.ToLower().Contains("disable"))
+                        {
+                            Logger.Write(strReason1 + $"\n", LogLevel.Warning);
+
+                            Logger.Write(strExitMsg + $"\n" + "Please close bot to continue", LogLevel.Error);
+                            //Console.ReadLine();
+                            return true;
+                        }
+                        else
+                            return false;
+                    }
+                    else
+                        return false;
+                }
+                catch (WebException)
+                {
+                    // ignored
+                }
+            }
+
+            return false;
+        }
+
+        private static bool CheckKillSwitch()
+        {
+            using (var wC = new WebClient())
+            {
+                try
+                {
+                    var strResponse = WebClientExtensions.DownloadString(wC, StrKillSwitchUri);
+
+                    if (strResponse == null)
+                        return false;
+
+                    var strSplit = strResponse.Split(';');
+
+                    if (strSplit.Length > 1)
+                    {
+                        var strStatus = strSplit[0];
+                        var strReason = strSplit[1];
+
+                        if (strStatus.ToLower().Contains("disable"))
+                        {
+                            Logger.Write(strReason + $"\n", LogLevel.Warning);
+
+                            if (PromptForKillSwitchOverride(strReason))
+                            {
+                                // Override
+                                Logger.Write("Overriding killswitch... you have been warned!", LogLevel.Warning);
+                                return false;
+                            }
+
+                            Logger.Write("The bot will now close", LogLevel.Error);
+                            Instance.startStopBotToolStripMenuItem.Text = @"■ Exit RocketBot2";
+                            //Console.ReadLine();
+                            return true;
+                        }
+                    }
+                    else
+                        return false;
+                }
+                catch (WebException)
+                {
+                    // ignored
+                }
+            }
+
+            return false;
+        }
+
+        private static void UnhandledExceptionEventHandler(object obj, UnhandledExceptionEventArgs args)
+        {
+            Logger.Write("Exception caught, writing LogBuffer.", force: true);
+            //throw new Exception();
+        }
+
+        public static bool PromptForKillSwitchOverride(string strReason)
+        {
+            Logger.Write("Do you want to override killswitch to bot at your own risk? Y/N", LogLevel.Warning);
+
+            /*
+            while (true)
+            {
+                var strInput = Console.ReadLine().ToLower();
+
+                switch (strInput)
+                {
+                    case "y":
+                        // Override killswitch
+                        return true;
+                    case "n":
+                        return false;
+                    default:
+                        Logger.Write("Enter y or n", LogLevel.Error);
+                        continue;
+                }
+            }
+            */
+            DialogResult result = MessageBox.Show("Do you want to override killswitch to bot at your own risk? Y/N \n\r" + strReason, Application.ProductName + " - Use Old API detected", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            switch (result)
+            {
+                case DialogResult.Yes: return true;
+                case DialogResult.No: return false;
+            }
+            return false;
         }
     }
 }

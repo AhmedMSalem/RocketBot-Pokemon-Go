@@ -457,7 +457,7 @@ namespace RocketBot2.Forms
             //ProgressBar.Fill(90);
 
             _session.Navigation.WalkStrategy.UpdatePositionEvent += 
-                (session, lat, lng) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng });
+                (session, lat, lng, speed) => _session.EventDispatcher.Send(new UpdatePositionEvent { Latitude = lat, Longitude = lng, Speed = speed });
             _session.Navigation.WalkStrategy.UpdatePositionEvent += LoadSaveState.SaveLocationToDisk;
 
             Navigation.GetHumanizeRouteEvent +=
@@ -682,21 +682,22 @@ namespace RocketBot2.Forms
                 Stroke = new Pen(Color.FromArgb(128, 0, 179, 253), 4) { DashStyle = DashStyle.Dash }
             };
 
-            if (encounterPokemonsCount > 25)
+            if (encounterPokemonsCount > 25 || encounterPokemonsCount == 0)
             {
-                _playerOverlay.Routes.Clear();
                 _playerOverlay.Markers.Clear();
                 _pokemonsOverlay.Markers.Clear();
+                _playerLocations.Clear();
+                //get optimized route
+                var _pokeStops = RouteOptimizeUtil.Optimize(pokeStops.ToArray(), _session.Client.CurrentLatitude,
+                    _session.Client.CurrentLongitude);
+                InitializePokestopsAndRoute(_pokeStops);
+                Navigation_UpdatePositionEvent(_session.Client.CurrentLatitude, _session.Client.CurrentLongitude);
                 encounterPokemonsCount = 0;
             }
 
             encounterPokemonsCount++;
             _playerRouteOverlay.Routes.Clear();
             _playerRouteOverlay.Routes.Add(routes);
-              //get optimized route
-            var _pokeStops = RouteOptimizeUtil.Optimize(pokeStops.ToArray(), _session.Client.CurrentLatitude,
-                _session.Client.CurrentLongitude);
-            InitializePokestopsAndRoute(_pokeStops);
         }
 
         private void UpdateMap(FortData pokestop)

@@ -273,7 +273,7 @@ namespace RocketBot2.Forms
                 {
                     return;
                 }*/
-                CheckKillSwitch();
+                _botStarted = CheckKillSwitch();
                 CheckMKillSwitch();
             }
 
@@ -461,7 +461,7 @@ namespace RocketBot2.Forms
             _session.Navigation.WalkStrategy.UpdatePositionEvent += LoadSaveState.SaveLocationToDisk;
 
             Navigation.GetHumanizeRouteEvent +=
-                (route, destination, pokestops) => _session.EventDispatcher.Send(new GetHumanizeRouteEvent { Route = route, Destination = destination, pokeStops = pokestops });
+                (route)  => _session.EventDispatcher.Send(new GetHumanizeRouteEvent { Route = route} );
             Navigation.GetHumanizeRouteEvent += UpdateMap;
 
             UseNearbyPokestopsTask.LootPokestopEvent +=
@@ -484,7 +484,7 @@ namespace RocketBot2.Forms
 
             var accountManager = new MultiAccountManager(logicSettings.Bots);
 
-            accountManager.Add(settings.Auth.AuthConfig);
+            var mainAccount = accountManager.Add(settings.Auth.AuthConfig);
 
             ioc.Register<MultiAccountManager>(accountManager);
 
@@ -670,7 +670,7 @@ namespace RocketBot2.Forms
         }
 
         private int encounterPokemonsCount;
-        private void UpdateMap(List<GeoCoordinate> route, GeoCoordinate destination, List<FortData> pokeStops)
+        private void UpdateMap(List<GeoCoordinate> route)
         {
             var routePointLatLngs = new List<PointLatLng>();
             foreach (var item in route)
@@ -682,18 +682,19 @@ namespace RocketBot2.Forms
                 Stroke = new Pen(Color.FromArgb(128, 0, 179, 253), 4) { DashStyle = DashStyle.Dash }
             };
 
-            if (encounterPokemonsCount > 25 || encounterPokemonsCount == 0)
+            if (encounterPokemonsCount > 15 || encounterPokemonsCount == 0)
             {
                 _playerOverlay.Markers.Clear();
                 _pokemonsOverlay.Markers.Clear();
                 _playerLocations.Clear();
+                Navigation_UpdatePositionEvent(_session.Client.CurrentLatitude,
+                    _session.Client.CurrentLongitude);
                 //get optimized route
-                var _pokeStops = RouteOptimizeUtil.Optimize(pokeStops.ToArray(), _session.Client.CurrentLatitude,
+                var _pokeStops = RouteOptimizeUtil.Optimize(_session.Forts.ToArray(), _session.Client.CurrentLatitude,
                     _session.Client.CurrentLongitude);
                 InitializePokestopsAndRoute(_pokeStops);
-                Navigation_UpdatePositionEvent(_session.Client.CurrentLatitude, _session.Client.CurrentLongitude);
                 encounterPokemonsCount = 0;
-            }
+             }
 
             encounterPokemonsCount++;
             _playerRouteOverlay.Routes.Clear();
@@ -1100,16 +1101,6 @@ namespace RocketBot2.Forms
             try
             {
                 var itemTemplates = await _session.Client.Download.GetItemTemplates();
-                var inventory =  _session.Inventory.GetCachedInventory();
-                var profile = await _session.Client.Player.GetPlayer();
-                var inventoryAppliedItems =  _session.Inventory.GetAppliedItems();
-
-                var appliedItems = 
-                    inventoryAppliedItems
-                    .Where(aItems => aItems?.Item != null)
-                    .SelectMany(aItems => aItems.Item)
-                    .ToDictionary(item => item.ItemId, item => TimeHelper.FromUnixTimeUtc(item.ExpireMs));
-
                 PokemonObject.Initilize(itemTemplates);
 
                 var pokemons = 
@@ -1132,30 +1123,33 @@ namespace RocketBot2.Forms
                 olvPokemonList.SetObjects(pokemonObjects);
                 olvPokemonList.TopItemIndex = prevTopItem;
 
-                var pokemoncount = pokemons.Count();
-
-                var eggcount = _session.Inventory.GetEggs().Count();
-
                 lblPokemonList.Text =
-                    $"{pokemoncount + eggcount} / {profile.PlayerData.MaxPokemonStorage} ({pokemoncount} pokemon, {eggcount} eggs)";
+                    $"PokeDex: {_session.Inventory.GetPokeDexItems().Count} / Storage: {_session.Client.Player.PlayerData.MaxPokemonStorage} ({pokemons.Count()} pokemons, {_session.Inventory.GetEggs().Count()} eggs)";
 
                 var items = 
                     _session.Inventory.GetItems()
                     .Where(i => i != null)
                     .OrderBy(i => i.ItemId);
 
-                var itemscount = items.Count() +1;
-                   
-                    flpItems.Controls.Clear();
-                    foreach (var item in items)
-                    {
-                        var box = new ItemBox(item);
-                        if (appliedItems.ContainsKey(item.ItemId))
-                            box.expires = appliedItems[item.ItemId];
-                        box.ItemClick += ItemBox_ItemClick;
-                        flpItems.Controls.Add(box);
-                    }
-            lblInventory.Text = itemscount + @" / " + profile.PlayerData.MaxItemStorage;
+                var appliedItems =
+                    _session.Inventory.GetAppliedItems()
+                    .Where(aItems => aItems?.Item != null)
+                    .SelectMany(aItems => aItems.Item)
+                    .ToDictionary(item => item.ItemId, item => TimeHelper.FromUnixTimeUtc(item.ExpireMs));
+                
+                flpItems.Controls.Clear();
+
+                foreach (var item in items)
+                {
+                    var box = new ItemBox(item);
+                    if (appliedItems.ContainsKey(item.ItemId))
+                        box.expires = appliedItems[item.ItemId];
+                    box.ItemClick += ItemBox_ItemClick;
+                    flpItems.Controls.Add(box);
+                }
+
+            lblInventory.Text = 
+                    $"Types: {items.Count()} / Total: {_session.Inventory.GetTotalItemCount()} / Storage: {_session.Client.Player.PlayerData.MaxItemStorage}";
             }
             catch (ArgumentNullException)
             {

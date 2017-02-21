@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Device.Location;
+//TODO: OSx not ok
+//using System.Device.Location;
 using System.Threading.Tasks;
 using PoGo.NecroBot.Logic.Event;
 using PoGo.NecroBot.Logic.State;
@@ -22,7 +23,8 @@ namespace PoGo.NecroBot.Logic.Service
             _bot = bot;
             _session = session;
         }
-
+		//TODO: OSx not ok
+		/*
         public async Task SendLocation(GeoCoordinate geo, Message telegramMessage)
         {
             await SendLocation(geo, telegramMessage.MessageId);
@@ -36,6 +38,7 @@ namespace PoGo.NecroBot.Logic.Service
             }
             await _bot.SendLocationAsync(chatId, (float) geo.Latitude, (float) geo.Longitude);
         }
+        */
 
         public async Task SendMessage(string message, Message telegramMessage)
         {

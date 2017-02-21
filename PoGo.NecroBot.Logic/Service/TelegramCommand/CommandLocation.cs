@@ -1,5 +1,6 @@
 ﻿using System;
-using System.Device.Location;
+//TODO: OSx not ok
+//using System.Device.Location;
 using System.Threading.Tasks;
 using PoGo.NecroBot.Logic.Common;
 using PoGo.NecroBot.Logic.Event;
@@ -8,7 +9,7 @@ using Telegram.Bot.Types;
 
 namespace PoGo.NecroBot.Logic.Service.TelegramCommand
 {
-    public abstract class CommandLocation : ICommandGenerify<GeoCoordinate>
+  /*  public abstract class CommandLocation : ICommandGenerify<GeoCoordinate>
     {
         protected readonly TelegramUtils TelegramUtils;
 
@@ -48,7 +49,9 @@ namespace PoGo.NecroBot.Logic.Service.TelegramCommand
         public string GetDescription(ISession session) =>
             session.Translation.GetTranslation(DescriptionI18NKey);
 
+
         public string GetMsgHead(ISession session, params object[] data) =>
             session.Translation.GetTranslation(MsgHeadI18NKey, data);
     }
+    */
 }

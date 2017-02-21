@@ -48,6 +48,16 @@ namespace RocketBot2
             Logger.Write(noticeEvent.ToString());
         }
 
+        public static void HandleEvent(PokestopLimitUpdate ev, ISession session)
+        {
+            Logger.Write($"(POKESTOP LIMIT) {ev.Value}/{ev.Limit}", LogLevel.Info, ConsoleColor.Yellow);
+        }
+
+        public static void HandleEvent(CatchLimitUpdate ev, ISession session)
+        {
+            Logger.Write($"(CATCH LIMIT) {ev.Value}/{ev.Limit}", LogLevel.Info, ConsoleColor.Yellow);
+        }
+
         private static void HandleEvent(TargetLocationEvent ev, ISession session)
         {
             Logger.Write(session.Translation.GetTranslation(TranslationString.TargetLocationSet, ev.Latitude, ev.Longitude), LogLevel.Info);
@@ -283,7 +293,8 @@ namespace RocketBot2
                     returnRealBallName(pokemonCaptureEvent.Pokeball), pokemonCaptureEvent.BallAmount,
                     pokemonCaptureEvent.Exp, familyCandies, pokemonCaptureEvent.Latitude.ToString("0.000000"),
                     pokemonCaptureEvent.Longitude.ToString("0.000000"),
-                    pokemonCaptureEvent.Move1, pokemonCaptureEvent.Move2, pokemonCaptureEvent.Rarity
+                    pokemonCaptureEvent.Move1, pokemonCaptureEvent.Move2, pokemonCaptureEvent.Rarity,
+                    pokemonCaptureEvent.CaptureReason
                 );
                 Logger.Write(message, LogLevel.Caught);
             }
@@ -318,6 +329,18 @@ namespace RocketBot2
             {
                 case ItemId.ItemRazzBerry:
                     strBerry = session.Translation.GetTranslation(TranslationString.ItemRazzBerry);
+                    break;
+                case ItemId.ItemNanabBerry:
+                    strBerry = session.Translation.GetTranslation(TranslationString.ItemNanabBerry);
+                    break;
+                case ItemId.ItemPinapBerry:
+                    strBerry = session.Translation.GetTranslation(TranslationString.ItemPinapBerry);
+                    break;
+                case ItemId.ItemWeparBerry:
+                    strBerry = session.Translation.GetTranslation(TranslationString.ItemWeparBerry);
+                    break;
+                case ItemId.ItemBlukBerry:
+                    strBerry = session.Translation.GetTranslation(TranslationString.ItemBlukBerry);
                     break;
                 default:
                     strBerry = useBerryEvent.BerryType.ToString();

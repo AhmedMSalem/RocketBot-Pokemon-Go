@@ -3,9 +3,12 @@
 [1.2]: https://discordapp.com/api/guilds/208485545439920128/widget.png?style=banner2 (DISCORD)
 
 
+# MacOS VisualStudio Preview (3) Branch Tests
+
 <!-- disclaimer -->
 [![Github All Releases](https://img.shields.io/github/downloads/TheUnnamedOrganisation/RocketBot/total.svg?maxAge=250)](https://github.com/TheUnnamedOrganisation/RocketBot/releases) 
 [![GitHub license](https://img.shields.io/badge/license-AGPL-blue.svg)](https://raw.githubusercontent.com/TheUnnamedOrganisation/RocketBot/master/LICENSE.md) 
+[![Build status](https://ci.appveyor.com/api/projects/status/f759nsxul31rlub4/branch/master?svg=true)](https://ci.appveyor.com/project/RocketBot/rocketbot/branch/master)
 
 [![Stories in Ready](https://badge.waffle.io/TheUnnamedOrganisation/RocketBot.svg?label=accepted&title=Accepted)](http://waffle.io/TheUnnamedOrganisation/RocketBot) 
 [![Stories in Ready](https://badge.waffle.io/TheUnnamedOrganisation/RocketBot.svg?label=in%20progress&title=In%20Progress)](http://waffle.io/TheUnnamedOrganisation/RocketBot) 
@@ -15,7 +18,7 @@
 
 ![alt text][1.1] <strong><em>`The contents of this repo are a proof of concept and are for educational use only`</em></strong>![alt text][1.1]<br/>
 
-<h1>RocketBot2 now supports Pokémon Go 0.55.0 API using public hashing server from PogoDev, or Legacy API(FREE Hight risk) </h1>
+<h1>RocketBot2 is now compatible with 0.57.2 API.</h1>
 
 <p>
 RocketBot itself is free but now you will need to purchase an API key to run the bot.

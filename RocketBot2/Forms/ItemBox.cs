@@ -2,22 +2,25 @@
 using System.Drawing;
 using System.Windows.Forms;
 using POGOProtos.Inventory.Item;
+using RocketBot2.Helpers;
 
 namespace RocketBot2.Forms
 {
     public partial class ItemBox : UserControl
     {
         public DateTime expires = new DateTime(0);
+        public ItemData item_ { get; }
+
 
         public ItemBox(ItemData item)
         {
             InitializeComponent();
 
-            item_ = item;
-
-            pb.Image = (Image) Properties.Resources.ResourceManager.GetObject(item.ItemId.ToString());
+            pb.Image = ResourceHelper.ItemPicture(item);
             lbl.Text = item.Count.ToString();
             lblTime.Parent = pb;
+
+            item_ = item;
 
             foreach (Control control in Controls)
             {
@@ -26,14 +29,12 @@ namespace RocketBot2.Forms
                 control.MouseClick += childMouseClick;
             }
 
-            if (item_.ItemId == ItemId.ItemIncubatorBasic || item_.ItemId == ItemId.ItemIncubatorBasicUnlimited ||
+            if (item.ItemId == ItemId.ItemIncubatorBasic || item.ItemId == ItemId.ItemIncubatorBasicUnlimited ||
                 item.Count < 1)
             {
                 Enabled = false;
             }
         }
-
-        public ItemData item_ { get; }
 
         public event EventHandler ItemClick;
 

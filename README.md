@@ -3,7 +3,7 @@
 [1.2]: https://discordapp.com/api/guilds/208485545439920128/widget.png?style=banner2 (DISCORD)
 
 
-# MacOS VisualStudio Preview Branch Tests
+# MacOS VisualStudio Preview (3) Branch Tests
 
 <!-- disclaimer -->
 [![Github All Releases](https://img.shields.io/github/downloads/TheUnnamedOrganisation/RocketBot/total.svg?maxAge=250)](https://github.com/TheUnnamedOrganisation/RocketBot/releases) 

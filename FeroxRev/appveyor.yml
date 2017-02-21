@@ -1,0 +1,18 @@
+version: 1.0.0.{build}
+skip_tags: true
+configuration: Release
+platform: x86
+# environment variables
+environment:
+  SolutionDirectory: .
+before_build:
+- cmd: >-
+    sed -i "s#$(SolutionDir)#.#g" PokemonGo.RocketAPI.csproj
+
+    nuget restore -OutputDirectory packages
+    
+    git clone -q --branch=master https://github.com/TheUnnamedOrganisation/POGOProtos.git POGOProtos
+    
+    sed -i "s#$(SolutionDir)#..#g" POGOProtos/POGOProtos.csproj
+build:
+  verbosity: minimal
